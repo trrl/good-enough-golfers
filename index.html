@@ -1,181 +1,751 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Good-Enough Golfers</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="favicon.ico">
+<title>Round-by-Round Groups</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!--
+  Round-by-Round Groups
+  Adapted from Good-Enough Golfers (https://github.com/islemaster/good-enough-golfers)
+  Original work: MIT License, Copyright (c) 2017 Brad Buchanan.
+  This version adds per-round group sizes and uneven groups.
 
-    <link rel="stylesheet" href="index.css"/>
-    <script src="https://cdn.jsdelivr.net/npm/immutable@3.8.2/dist/immutable.min.js"></script>
-    <script src="index.js" type="text/javascript"></script>
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: setup column on the left (roster, rounds, rules), results on the right; stacks on phones. */
+:root {
+  --bg: #f2f5f4;
+  --surface: #ffffff;
+  --ink: #18242a;
+  --muted: #5a6a6f;
+  --line: #d5dedc;
+  --accent: #1d6c63;
+  --accent-ink: #ffffff;
+  --accent-soft: #dfeeeb;
+  --good: #276f38;
+  --good-soft: #e2f1e4;
+  --warn: #935300;
+  --warn-soft: #fbeed6;
+  --bad: #b0261d;
+  --bad-soft: #fbe3e0;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111819; --surface: #192325; --ink: #e3ebe9; --muted: #98a9a6; --line: #2b3a3c;
+    --accent: #5fc3b5; --accent-ink: #0b1b19; --accent-soft: #1c3532;
+    --good: #82d091; --good-soft: #1b3221; --warn: #f0b65c; --warn-soft: #3a2c13;
+    --bad: #f3897f; --bad-soft: #3d1f1b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111819; --surface: #192325; --ink: #e3ebe9; --muted: #98a9a6; --line: #2b3a3c;
+  --accent: #5fc3b5; --accent-ink: #0b1b19; --accent-soft: #1c3532;
+  --good: #82d091; --good-soft: #1b3221; --warn: #f0b65c; --warn-soft: #3a2c13;
+  --bad: #f3897f; --bad-soft: #3d1f1b;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 48px;
+}
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+.wrap { max-width: 1320px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+header.top h1 { font-size: 2rem; letter-spacing: -0.01em; }
+header.top p { margin: 4px 0 0; color: var(--muted); max-width: 60ch; }
+.layout { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.setup { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.panel h2 { font-size: 1.15rem; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.count { font-family: var(--font-body); font-size: 0.85rem; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+.hint { color: var(--muted); font-size: 0.85rem; margin: 0; }
+label.field { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; font-weight: 600; }
+textarea, input[type="text"], select {
+  font: inherit; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; width: 100%; min-width: 0;
+}
+textarea { resize: vertical; line-height: 1.45; }
+textarea:focus, input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.unknown { font-size: 0.8rem; color: var(--warn); margin: 0; }
+
+/* Rounds editor */
+.rounds { display: flex; flex-direction: column; gap: 10px; }
+.round-row { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) 4.5rem auto; align-items: center; background: var(--bg); }
+.round-row .rlabel { font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; white-space: nowrap; }
+.round-row .val { text-align: center; font-variant-numeric: tabular-nums; }
+.round-row.custom-mode { grid-template-columns: auto minmax(0, 1fr) auto; }
+.round-row.custom-mode .val { grid-column: 1 / -1; text-align: left; }
+.round-row .left { grid-column: 1 / -1; }
+.round-row .preview { grid-column: 1 / -1; font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.round-row .preview.err { color: var(--bad); }
+.round-row .preview.warn { color: var(--warn); }
+.icon-btn { border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 6px; width: 30px; height: 30px; font-size: 1.1rem; line-height: 1; cursor: pointer; }
+.icon-btn:hover { color: var(--bad); background: var(--bad-soft); }
+
+button.btn { font: inherit; font-weight: 600; border-radius: 8px; padding: 9px 14px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+button.btn:hover { border-color: var(--accent); }
+button.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.btn.primary:hover { filter: brightness(1.08); }
+button.btn:disabled { opacity: 0.55; cursor: progress; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+.budget { border-radius: 8px; padding: 10px 12px; font-size: 0.88rem; }
+.budget.good { background: var(--good-soft); color: var(--good); }
+.budget.warn { background: var(--warn-soft); color: var(--warn); }
+.budget.bad { background: var(--bad-soft); color: var(--bad); }
+.budget strong { display: block; }
+.meter { height: 6px; border-radius: 3px; background: color-mix(in srgb, currentColor 18%, transparent); margin-top: 8px; overflow: hidden; }
+.meter span { display: block; height: 100%; background: currentColor; border-radius: 3px; }
+
+details.more summary { cursor: pointer; font-weight: 600; font-family: var(--font-display); font-size: 1.05rem; }
+details.more[open] summary { margin-bottom: 10px; }
+details.more .inner { display: flex; flex-direction: column; gap: 14px; }
+
+/* Results */
+.results { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.summary { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
+.summary .stats { font-size: 0.92rem; color: var(--muted); }
+.summary .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.banner { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 10px 12px; font-size: 0.9rem; }
+.round-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.round-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.round-head h3 { font-size: 1.25rem; }
+.round-head .shape { color: var(--muted); font-size: 0.9rem; }
+.chip { margin-left: auto; font-size: 0.78rem; font-weight: 600; padding: 3px 9px; border-radius: 999px; letter-spacing: 0.02em; white-space: nowrap; }
+.chip.good { background: var(--good-soft); color: var(--good); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.chip.bad { background: var(--bad-soft); color: var(--bad); }
+.groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.group { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--bg); min-width: 0; }
+.group h4 { margin: 0 0 6px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); display: flex; justify-content: space-between; }
+.group ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.group li { overflow-wrap: anywhere; }
+.group li.repeat { color: var(--warn); text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+.group li.forbidden { color: var(--bad); font-weight: 600; cursor: help; }
+.empty { color: var(--muted); padding: 32px 16px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
+.progress { color: var(--muted); font-size: 0.9rem; }
+.toast { font-size: 0.85rem; color: var(--good); }
+footer { color: var(--muted); font-size: 0.82rem; }
+footer a, .hint a { color: var(--accent); }
+@media (prefers-reduced-motion: no-preference) { .round-card { animation: rise 0.25s ease-out both; } }
+@keyframes rise { from { transform: translateY(4px); opacity: 0.6; } to { transform: none; opacity: 1; } }
+@media print {
+  .setup, .summary button, header.top p, footer { display: none !important; }
+  .layout { display: block; }
+  .round-card { break-inside: avoid; }
+}
+</style>
+
 </head>
 <body>
-    <div id="controls">
-        <h1>Good-Enough Golfers</h1>
-        <div>
-            <div class="help-text">
-                Click the "Recompute" button to get a new solution.
-                <br />Customize group size, number of groups and number of
-                rounds with the sliders.
-                <br />Solutions with more rounds and larger groups take longer
-                to compute.
-                <br />"Use Group Leaders?" keeps the first <em>N</em> players
-                with their respective groups.
-            </div>
-        </div>
-        <button type="button" id="recomputeButton">Recompute!</button>
-        <table>
-            <tr>
-                <th>Number of groups</th>
-                <td class="sliderLabel">
-                  <input type=""text" id="groupsBox" value="5" />
-                </td>
-                <td>
-                    <input id="groupsSlider" type="range" min="1" max="50" step="1" value="5"/>
-                </td>
-            </tr>
-            <tr>
-                <th>People per group</th>
-                <td class="sliderLabel"}>
-                  <input type="text" id="ofSizeBox" value="4" />
-                </td>
-                <td>
-                    <input id="ofSizeSlider" type="range" min="2" max="15" step="1" value="4"/>
-                </td>
-            </tr>
-            <tr>
-                <th>Number of rounds</th>
-                <td class="sliderLabel"}>
-                  <input type="text" id="forRoundsBox" value="5" />
-                </td>
-                <td>
-                    <input id="forRoundsSlider" type="range" min="1" max="20" step="1" value="5"/>
-                </td>
-            </tr>
-            <tr>
-              <th>Use group leaders?</th>
-              <td class="sliderLabel">
-                <input id="withGroupLeadersBox" type="checkbox" />
-              </td>
-              <td>&nbsp;</td>
-            </tr>
-        </table>
-        <div>
-            <div>
-                <strong>Player Names</strong>
-            </div>
-            <div class="help-text">
-                Player names can be provided for convenience.
-                <br />If player names are omitted, players will be numbered.
-                <br />Editing player names will update the current solution in
-                real-time; you don't need to click "Recompute."
-                <br />&nbsp;
-                <br /><strong>Privacy:</strong> Names are never sent to our
-                servers. All processing happens on your own computer.
-                <br />&nbsp;
-                <br />If two players have the same name, additional constraints
-                (below) will apply to both of them.
-                <br />&nbsp;
-                <br />Tip: To produce mostly-even groups with an uneven number
-                of players, create players named <tt>[Empty]</tt> to round out
-                your roster, and add an <tt>[Empty],[Empty]</tt> constraint
-                in the next box.
-            </div>
-            <div>
-                <textarea id="playerNames" rows="21">
-Alleson
-Brad
-Charlie
-Danielle
-Fredric
-George
-Harriet
-Ivan
-Jenny
-Karen
-Laura
-Mona
-Nathan
-Olive
-Penelope
-Rachel
-Stan
-Tom
-[Empty]
-[Empty]
-</textarea>
-            </div>
-        </div>
-        <div>
-            <div>
-                <strong>Never allow these pairs</strong>
-            </div>
-            <div class="help-text">
-                Players grouped in this box are never grouped by the solver
-                unless absolutely necessary.
-                <br />Comma-separate names within a group.
-                <br />Put groups on separate lines.
-            </div>
-            <div>
-                <textarea id="forbiddenPairs" rows="6">
-Brad, Danielle
-[Empty], [Empty]
-</textarea>
-            </div>
-        </div>
-        <div>
-            <div>
-                <strong>Prefer splitting these groups</strong>
-            </div>
-            <div class="help-text">
-                Similar to above, but lower priority.
-                The solver avoids grouping players if they're already
-                grouped here, but reducing repeat encounters can take
-                priority in later rounds.
-                <br />Tip: You can encourage the solver to gender-balance
-                groups by listing all players of one gender in a group here.
-            </div>
-            <div>
-                <textarea id="discouragedGroups" rows="6">
-Brad,Ivan,Mona,Stan
-</textarea>
-            </div>
-        </div>
-        <div>
-            <div class="help-text">
-                The <strong>conflict score</strong> is a representation of how
-                far the solution is from perfect - lower is better.
-                <br />The <strong>Download CSV</strong> button provides a pivot
-                view of the solution that makes it easier see the sequence of
-                groups for a given player.
-                <br />&nbsp;
-                <br /><a href="javascript:hideHelp()">Close help.</a>
-            </div>
-        </div>
-        <p>
-            <em>Good-Enough Golfers</em> is a near-solver for a class of scheduling problems including the
-            <a href="http://mathworld.wolfram.com/SocialGolferProblem.html">Social Golfer Problem</a>
-            and
-            <a href="http://mathworld.wolfram.com/KirkmansSchoolgirlProblem.html">Kirkman's Schoolgirl Problem</a>.
-            The goal is to schedule <tt>g x p</tt> players into <tt>g</tt> groups of size <tt>p</tt> for
-            <tt>w</tt> weeks such that no two players meet more than once.
-        </p>
-        <p>
-            Real solutions to these problems can be extremely slow, but approximations are fast and
-            often good enough for real-world purposes.
-        </p>
-        <p>
-            <a href="http://bradleycbuchanan.com">B Buchanan</a>, 2017
-            -
-            <a href="https://github.com/islemaster/good-enough-golfers">View Source</a>
-            -
-            <a href="https://ko-fi.com/bcbeng">Tip Jar</a>
-            -
-            <a id="show-help-link" href="javascript:showHelp()">Help</a>
-            <a id="hide-help-link" href="javascript:hideHelp()">Close Help</a>
-        </p>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Round-by-Round Groups</h1>
+      <p>Set up each round separately, with its own group size or number of groups. Uneven numbers are fine. The tool keeps students apart from classmates they've already worked with whenever it can.</p>
     </div>
-    <div id="results">
+  </header>
 
-    </div>
+  <div class="layout">
+    <section class="setup" aria-label="Setup">
+      <div class="panel">
+        <h2>Students <span class="count" id="rosterCount"></span></h2>
+        <textarea id="roster" rows="10" spellcheck="false" aria-label="Student names, one per line"></textarea>
+        <p class="hint">One name per line. Names stay in your browser.</p>
+        <label class="field" id="countField" hidden>Or just a number of students
+          <input type="text" id="studentCount" inputmode="numeric" value="24">
+        </label>
+      </div>
+
+      <div class="panel">
+        <h2>Rounds <span class="count" id="roundCount"></span></h2>
+        <div class="rounds" id="rounds"></div>
+        <div class="row">
+          <button type="button" class="btn" id="addRound">+ Add round</button>
+        </div>
+        <div class="budget" id="budget" aria-live="polite"></div>
+      </div>
+
+      <div class="panel">
+        <details class="more" id="rulesBox">
+          <summary>Pairing rules</summary>
+          <div class="inner">
+            <label class="field">Never put these students together
+              <textarea id="forbidden" rows="3" spellcheck="false"></textarea>
+            </label>
+            <p class="hint">Separate names with commas and put each set on its own line. Nobody on a line will share a group with anyone else on that line unless it can't be avoided. Use this for group leaders too: list them all on one line to spread them out.</p>
+            <p class="unknown" id="forbiddenUnknown" hidden></p>
+            <label class="field">Prefer to split these students up
+              <textarea id="discouraged" rows="3" spellcheck="false"></textarea>
+            </label>
+            <p class="hint">A gentler version of the rule above. The tool tries to split these students up, but avoiding repeat partners comes first in later rounds.</p>
+            <p class="unknown" id="discouragedUnknown" hidden></p>
+          </div>
+        </details>
+      </div>
+
+      <button type="button" class="btn primary" id="go">Make groups</button>
+    </section>
+
+    <section class="results" id="results" aria-live="polite"></section>
+  </div>
+
+  <footer>
+    Adapted from <a href="https://github.com/islemaster/good-enough-golfers" target="_blank" rel="noopener">Good-Enough Golfers</a> by Brad Buchanan (MIT License), with per-round group sizes and uneven groups added. Everything runs in your browser. The <a href="classic/">original equal-groups version</a> is still here too.
+  </footer>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+// ---------- Sample starting state (shown the first time) ----------
+const SAMPLE = {
+  roster: ["Amara","Ben","Carmen","Dev","Elena","Felix","Grace","Hiro","Isla","Jonah","Kira","Leo","Maya","Nico","Olivia","Priya","Quinn","Rosa","Sam","Tariq","Uma","Victor","Wren","Xavier","Yara","Zane"].join("\n"),
+  studentCount: "24",
+  rounds: [
+    { mode: "size", value: "4", leftover: "bigger" },
+    { mode: "size", value: "3", leftover: "bigger" },
+    { mode: "count", value: "4", leftover: "bigger" },
+    { mode: "size", value: "2", leftover: "bigger" },
+    { mode: "custom", value: "6, 5, 5, 5, 5", leftover: "bigger" },
+  ],
+  forbidden: "Ben, Dev\nMaya, Grace, Leo",
+  discouraged: "",
+};
+const STORE_KEY = "roundGroupsState.v1";
+
+// ---------- State ----------
+let state = load() || structuredClone(SAMPLE);
+let rowIds = state.rounds.map(() => uid());
+let results = state.results || null;   // { n, plan: [[sizes]...], rounds: [[[idx]]] }
+let running = null;                    // { cancelled }
+
+const $ = (id) => document.getElementById(id);
+const el = {
+  roster: $("roster"), rosterCount: $("rosterCount"), countField: $("countField"), studentCount: $("studentCount"),
+  rounds: $("rounds"), roundCount: $("roundCount"), addRound: $("addRound"), budget: $("budget"),
+  forbidden: $("forbidden"), discouraged: $("discouraged"),
+  forbiddenUnknown: $("forbiddenUnknown"), discouragedUnknown: $("discouragedUnknown"),
+  go: $("go"), results: $("results"), rulesBox: $("rulesBox"),
+};
+
+function uid() { return Math.random().toString(36).slice(2, 9); }
+function load() { try { const s = JSON.parse(localStorage.getItem(STORE_KEY)); return s && Array.isArray(s.rounds) ? s : null; } catch { return null; } }
+function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify({ ...state, results })); } catch {} }
+
+// ---------- Roster ----------
+function names() { return el.roster.value.split("\n").map(s => s.trim()).filter(Boolean); }
+function studentTotal() {
+  const n = names().length;
+  if (n > 0) return n;
+  const c = parseInt(el.studentCount.value, 10);
+  return Number.isFinite(c) && c > 0 ? Math.min(c, 400) : 0;
+}
+function displayName(i) { const list = names(); return list[i] || `Student ${i + 1}`; }
+
+// ---------- Group sizes for one round ----------
+function spread(n, g) {
+  const base = Math.floor(n / g), extra = n % g;
+  return Array.from({ length: g }, (_, i) => base + (i < extra ? 1 : 0));
+}
+function plural(n, word) { return `${n} ${word}${n === 1 ? "" : "s"}`; }
+function describe(sizes) {
+  const counts = new Map();
+  sizes.forEach(s => counts.set(s, (counts.get(s) || 0) + 1));
+  const parts = [...counts.entries()].sort((a, b) => b[0] - a[0]).map(([s, c]) => `${plural(c, "group")} of ${s}`);
+  return parts.join(" + ");
+}
+// Returns { sizes } or { error }
+function sizesFor(round, n) {
+  if (n < 2) return { error: "Add at least 2 students." };
+  if (round.mode === "custom") {
+    const nums = round.value.split(/[\s,;]+/).filter(Boolean).map(Number);
+    if (!nums.length) return { error: "Type group sizes, like 5, 5, 4, 4." };
+    if (nums.some(x => !Number.isInteger(x) || x < 1)) return { error: "Group sizes must be whole numbers above 0." };
+    const sum = nums.reduce((a, b) => a + b, 0);
+    if (sum !== n) return { error: `These sizes add up to ${sum}, but you have ${n} students.` };
+    return { sizes: nums.slice().sort((a, b) => b - a) };
+  }
+  const v = parseInt(round.value, 10);
+  if (!Number.isFinite(v) || v < 1) return { error: round.mode === "size" ? "Enter how many students per group." : "Enter how many groups." };
+  if (round.mode === "count") {
+    if (v > n) return { error: `You can't make ${v} groups from ${n} students.` };
+    return { sizes: spread(n, v) };
+  }
+  // mode === "size"
+  if (v > n) return { error: `Groups of ${v} need at least ${v} students.` };
+  const g = n % v === 0 ? n / v : (round.leftover === "smaller" ? Math.ceil(n / v) : Math.max(1, Math.floor(n / v)));
+  return { sizes: spread(n, g) };
+}
+
+// ---------- Rounds editor ----------
+function renderRoundsEditor() {
+  el.rounds.innerHTML = "";
+  state.rounds.forEach((r, i) => {
+    const id = rowIds[i];
+    const row = document.createElement("div");
+    row.className = "round-row";
+    row.innerHTML = `
+      <span class="rlabel">Round ${i + 1}</span>
+      <select id="${id}-mode" class="mode" aria-label="Round ${i + 1} grouping">
+        <option value="size">Groups of</option>
+        <option value="count">Number of groups</option>
+        <option value="custom">Exact group sizes</option>
+      </select>
+      <input type="text" id="${id}-val" class="val" aria-label="Round ${i + 1} amount">
+      <button type="button" class="icon-btn" aria-label="Remove round ${i + 1}" title="Remove round">×</button>
+      <select id="${id}-left" class="left" aria-label="Round ${i + 1} leftover students">
+        <option value="bigger">If it doesn't divide evenly: make a few groups bigger</option>
+        <option value="smaller">If it doesn't divide evenly: make a few groups smaller</option>
+      </select>
+      <div class="preview" id="${id}-preview"></div>`;
+    const mode = row.querySelector(".mode"), val = row.querySelector(".val"), left = row.querySelector(".left");
+    mode.value = r.mode; val.value = r.value; left.value = r.leftover || "bigger";
+    mode.addEventListener("change", () => {
+      r.mode = mode.value;
+      if (r.mode === "custom" && !/,/.test(r.value)) {
+        const s = sizesFor({ mode: "size", value: r.value, leftover: r.leftover }, studentTotal());
+        r.value = s.sizes ? s.sizes.join(", ") : "";
+        val.value = r.value;
+      }
+      onConfigChange();
+    });
+    val.addEventListener("input", () => { r.value = val.value; onConfigChange(); });
+    left.addEventListener("change", () => { r.leftover = left.value; onConfigChange(); });
+    row.querySelector(".icon-btn").addEventListener("click", () => {
+      state.rounds.splice(i, 1); rowIds.splice(i, 1);
+      renderRoundsEditor(); onConfigChange();
+    });
+    el.rounds.appendChild(row);
+  });
+  updatePreviews();
+}
+
+function updatePreviews() {
+  const n = studentTotal();
+  state.rounds.forEach((r, i) => {
+    const id = rowIds[i];
+    const row = $(`${id}-mode`)?.closest(".round-row");
+    if (!row) return;
+    const val = $(`${id}-val`), left = $(`${id}-left`), prev = $(`${id}-preview`);
+    row.classList.toggle("custom-mode", r.mode === "custom");
+    val.inputMode = r.mode === "custom" ? "text" : "numeric";
+    val.placeholder = r.mode === "custom" ? "e.g. 5, 5, 4, 4, 4, 4" : "";
+    const v = parseInt(r.value, 10);
+    left.hidden = !(r.mode === "size" && Number.isFinite(v) && v > 0 && n % v !== 0);
+    const res = sizesFor(r, n);
+    prev.className = "preview";
+    if (res.error) { prev.textContent = res.error; prev.classList.add("err"); }
+    else if (res.sizes.includes(1)) { prev.textContent = `→ ${describe(res.sizes)}. One student would be on their own.`; prev.classList.add("warn"); }
+    else { prev.textContent = `→ ${describe(res.sizes)}`; }
+  });
+  el.roundCount.textContent = plural(state.rounds.length, "round");
+}
+
+function plan() {
+  const n = studentTotal();
+  const out = state.rounds.map(r => sizesFor(r, n));
+  return { n, rounds: out, ok: out.length > 0 && out.every(r => r.sizes) };
+}
+
+// How many different classmates each student meets, compared with how many exist.
+function renderBudget() {
+  const p = plan();
+  const b = el.budget;
+  b.className = "budget";
+  if (!p.rounds.length) { b.textContent = "Add a round to get started."; b.classList.add("warn"); return; }
+  if (!p.ok) { b.textContent = "Fix the rounds marked in red to continue."; b.classList.add("bad"); return; }
+  const avail = p.n - 1;
+  let minUse = 0, maxUse = 0;
+  p.rounds.forEach(r => { minUse += Math.min(...r.sizes) - 1; maxUse += Math.max(...r.sizes) - 1; });
+  const pct = Math.min(100, Math.round(maxUse / avail * 100));
+  let title, text;
+  if (minUse > avail) {
+    b.classList.add("bad");
+    title = "Some repeat partners can't be avoided.";
+    text = `Over these rounds, every student meets at least ${minUse} classmates, but each has only ${avail}. The tool will spread the repeats out evenly.`;
+  } else if (maxUse > avail) {
+    b.classList.add("warn");
+    title = "You're close to the limit.";
+    text = `Students in the bigger groups meet up to ${maxUse} classmates, and each has only ${avail}. Expect a few repeats.`;
+  } else {
+    b.classList.add("good");
+    title = "Room for all-new partners every round.";
+    text = `Each student meets at most ${maxUse} of their ${avail} classmates. A schedule with no repeats may be possible, but it isn't guaranteed.`;
+  }
+  b.innerHTML = `<strong></strong><span></span><div class="meter" aria-hidden="true"><span style="width:${pct}%"></span></div>`;
+  b.querySelector("strong").textContent = title;
+  b.querySelector("span").textContent = text;
+}
+
+// ---------- Constraints ----------
+function parseGroups(text, roster) {
+  const lower = roster.map(s => s.toLowerCase());
+  const unknown = new Set();
+  const groups = [];
+  text.split("\n").forEach(line => {
+    const set = new Set();
+    line.split(",").map(s => s.trim()).filter(Boolean).forEach(name => {
+      const key = name.toLowerCase();
+      let found = false;
+      lower.forEach((nm, i) => { if (nm === key) { set.add(i); found = true; } });
+      if (!found) unknown.add(name);
+    });
+    if (set.size >= 2) groups.push([...set]);
+  });
+  return { groups, unknown: [...unknown] };
+}
+function renderUnknown() {
+  const roster = names();
+  [["forbidden", el.forbiddenUnknown], ["discouraged", el.discouragedUnknown]].forEach(([key, node]) => {
+    if (!roster.length) { node.hidden = true; return; }
+    const { unknown } = parseGroups(el[key].value, roster);
+    node.hidden = unknown.length === 0;
+    node.textContent = unknown.length ? `Not on the student list: ${unknown.join(", ")}` : "";
+  });
+}
+
+// ---------- Solver ----------
+// Same idea as Good-Enough Golfers: build one round at a time. Each pair costs
+// (times already grouped together)^2, and we hill-climb by swapping students out of
+// the costliest group. The difference: every round can have its own list of group sizes.
+const FORBID_COST = 1e6;
+const GENERATIONS = 40, RESTARTS = 4, KEEP = 60, RANDOM_SEEDS = 2;
+
+function shuffled(n) {
+  const a = new Int32Array(n);
+  for (let i = 0; i < n; i++) a[i] = i;
+  for (let i = n - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; const t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a;
+}
+
+let lastYield = 0;
+function maybeYield() {
+  const now = performance.now();
+  if (now - lastYield < 30) return null;
+  lastYield = now;
+  return new Promise(r => setTimeout(r, 0));
+}
+
+async function solveRound(n, sizes, cost, token) {
+  const starts = [], groupOf = new Int32Array(n);
+  let pos = 0;
+  sizes.forEach((s, g) => { starts.push(pos); for (let k = 0; k < s; k++) groupOf[pos + k] = g; pos += s; });
+
+  const gScore = (p, g) => {
+    let t = 0; const s = starts[g], e = s + sizes[g];
+    for (let i = s; i < e - 1; i++) { const row = p[i] * n; for (let j = i + 1; j < e; j++) t += cost[row + p[j]]; }
+    return t;
+  };
+  const make = (p) => { const gs = sizes.map((_, g) => gScore(p, g)); return { p, gs, total: gs.reduce((a, b) => a + b, 0) }; };
+
+  // Swap students between one of the costly groups and every other position.
+  function neighbours(c, out, ci) {
+    const order = c.gs.map((s, g) => g).filter(g => c.gs[g] > 0).sort((a, b) => c.gs[b] - c.gs[a]);
+    if (!order.length) return;
+    const targets = [order[0]];
+    if (order.length > 1) targets.push(order[1 + ((Math.random() * (order.length - 1)) | 0)]);
+    const p = c.p;
+    for (const w of targets) {
+      const ws = starts[w], we = ws + sizes[w];
+      for (let i = ws; i < we; i++) {
+        for (let j = 0; j < n; j++) {
+          const h = groupOf[j];
+          if (h === w) continue;
+          let t = p[i]; p[i] = p[j]; p[j] = t;
+          const a = gScore(p, w), b = gScore(p, h);
+          t = p[i]; p[i] = p[j]; p[j] = t;
+          out.push({ ci, i, j, w, h, a, b, total: c.total - c.gs[w] - c.gs[h] + a + b });
+        }
+      }
+    }
+  }
+
+  let best = null;
+  for (let r = 0; r < RESTARTS; r++) {
+    let top = Array.from({ length: 5 }, () => make(shuffled(n))).sort((a, b) => a.total - b.total);
+    for (let gen = 0; gen < GENERATIONS && top[0].total > 0; gen++) {
+      if (token.cancelled) return null;
+      const moves = [];
+      top.forEach((c, ci) => neighbours(c, moves, ci));
+      const pool = top.map(c => ({ c, total: c.total }));
+      for (let k = 0; k < RANDOM_SEEDS; k++) { const c = make(shuffled(n)); pool.push({ c, total: c.total }); }
+      moves.forEach(m => pool.push(m));
+      let bestTotal = Infinity;
+      for (const m of pool) if (m.total < bestTotal) bestTotal = m.total;
+      let ties = pool.filter(m => m.total === bestTotal);
+      for (let i = ties.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [ties[i], ties[j]] = [ties[j], ties[i]]; }
+      ties = ties.slice(0, KEEP);
+      top = ties.map(m => {
+        if (m.c) return m.c;
+        const parent = top[m.ci];
+        const p = parent.p.slice();
+        const t = p[m.i]; p[m.i] = p[m.j]; p[m.j] = t;
+        const gs = parent.gs.slice(); gs[m.w] = m.a; gs[m.h] = m.b;
+        return { p, gs, total: m.total };
+      });
+      const y = maybeYield(); if (y) await y;
+    }
+    if (!best || top[0].total < best.total) best = top[0];
+    if (best.total === 0) break;
+  }
+  return sizes.map((s, g) => Array.from(best.p.slice(starts[g], starts[g] + s)));
+}
+
+async function solveAll() {
+  const p = plan();
+  if (!p.ok) { renderBudget(); return; }
+  if (running) running.cancelled = true;
+  const token = { cancelled: false };
+  running = token;
+
+  const n = p.n, roster = names();
+  const forb = new Uint8Array(n * n), disc = new Float64Array(n * n), met = new Float64Array(n * n);
+  const pairsOf = (g, fn) => { for (let i = 0; i < g.length - 1; i++) for (let j = i + 1; j < g.length; j++) fn(g[i], g[j]); };
+  if (roster.length) {
+    parseGroups(el.forbidden.value, roster).groups.forEach(g => pairsOf(g, (a, b) => { forb[a * n + b] = forb[b * n + a] = 1; }));
+    parseGroups(el.discouraged.value, roster).groups.forEach(g => pairsOf(g, (a, b) => { disc[a * n + b]++; disc[b * n + a]++; }));
+  }
+
+  const sizesPlan = p.rounds.map(r => r.sizes);
+  results = { n, plan: sizesPlan, rounds: [], forb: Array.from(forb.keys()).filter(k => forb[k]), done: false, started: performance.now() };
+  setBusy(true);
+  renderResults();
+
+  for (let r = 0; r < sizesPlan.length; r++) {
+    const cost = new Float64Array(n * n);
+    for (let k = 0; k < n * n; k++) { const w = met[k] + disc[k]; cost[k] = forb[k] ? FORBID_COST + w * w : w * w; }
+    const groups = await solveRound(n, sizesPlan[r], cost, token);
+    if (!groups || token.cancelled) return;
+    groups.forEach(g => g.sort((a, b) => a - b));
+    groups.sort((a, b) => b.length - a.length || a[0] - b[0]);
+    groups.forEach(g => pairsOf(g, (a, b) => { met[a * n + b]++; met[b * n + a]++; }));
+    results.rounds.push(groups);
+    renderResults();
+  }
+  results.done = true;
+  results.seconds = Math.round((performance.now() - results.started) / 100) / 10;
+  running = null;
+  setBusy(false);
+  renderResults();
+  save();
+}
+
+function setBusy(b) { el.go.disabled = b; el.go.textContent = b ? "Making groups…" : (results ? "Shuffle again" : "Make groups"); }
+
+// ---------- Results ----------
+function analyse(res) {
+  const n = res.n, forb = new Set(res.forb || []);
+  const history = new Map(); // pair key -> [round numbers]
+  const perRound = res.rounds.map((groups, r) => {
+    let repeats = 0, broken = 0;
+    const marks = groups.map(g => {
+      const info = new Map(); // student -> { repeatWith: [..], forbiddenWith: [..] }
+      g.forEach(s => info.set(s, { repeatWith: [], forbiddenWith: [] }));
+      for (let i = 0; i < g.length - 1; i++) for (let j = i + 1; j < g.length; j++) {
+        const a = g[i], b = g[j], key = a * n + b;
+        const prev = history.get(key);
+        if (prev && prev.length) { repeats++; info.get(a).repeatWith.push([b, prev]); info.get(b).repeatWith.push([a, prev]); }
+        if (forb.has(key)) { broken++; info.get(a).forbiddenWith.push(b); info.get(b).forbiddenWith.push(a); }
+      }
+      return info;
+    });
+    groups.forEach(g => { for (let i = 0; i < g.length - 1; i++) for (let j = i + 1; j < g.length; j++) {
+      const key = g[i] * n + g[j]; if (!history.has(key)) history.set(key, []); history.get(key).push(r + 1);
+    } });
+    return { repeats, broken, marks };
+  });
+  let maxMeet = 0; history.forEach(v => { if (v.length > maxMeet) maxMeet = v.length; });
+  return { perRound, maxMeet, totalRepeats: perRound.reduce((a, r) => a + r.repeats, 0), totalBroken: perRound.reduce((a, r) => a + r.broken, 0) };
+}
+
+function renderResults() {
+  const box = el.results;
+  box.innerHTML = "";
+  if (!results || !results.rounds) {
+    box.innerHTML = `<div class="empty">Set up your students and rounds, then choose <b>Make groups</b>.</div>`;
+    return;
+  }
+  const a = analyse(results);
+
+  const summary = document.createElement("div");
+  summary.className = "summary";
+  const stats = document.createElement("div");
+  stats.className = "stats";
+  if (results.done) {
+    const parts = [`<b>${results.rounds.length}</b> rounds for <b>${results.n}</b> students`];
+    parts.push(a.totalRepeats === 0 ? `<b>no repeat partners</b>` : `<b>${a.totalRepeats}</b> repeat ${a.totalRepeats === 1 ? "pairing" : "pairings"}, no pair together more than <b>${a.maxMeet}</b> times`);
+    if (a.totalBroken) parts.push(`<b>${a.totalBroken}</b> "never together" ${a.totalBroken === 1 ? "rule" : "rules"} couldn't be kept`);
+    stats.innerHTML = parts.join(" · ") + (results.seconds != null ? ` <span>(${results.seconds}s)</span>` : "");
+  } else {
+    stats.innerHTML = `<span class="progress">Working on round ${results.rounds.length + 1} of ${results.plan.length}…</span>`;
+  }
+  summary.appendChild(stats);
+  if (results.done) {
+    const actions = document.createElement("div");
+    actions.className = "row";
+    actions.append(
+      copyButton("Copy as list", () => asList()),
+      copyButton("Copy for spreadsheet", () => asTable()),
+    );
+    summary.appendChild(actions);
+  }
+  box.appendChild(summary);
+
+  const p = plan();
+  if (results.done && (p.n !== results.n || JSON.stringify(p.rounds.map(r => r.sizes)) !== JSON.stringify(results.plan))) {
+    const ban = document.createElement("div");
+    ban.className = "banner";
+    ban.textContent = p.n !== results.n
+      ? `The number of students has changed (${results.n} → ${p.n}) since these groups were made. Choose "Shuffle again" to update them.`
+      : `The round settings have changed since these groups were made. Choose "Shuffle again" to apply them.`;
+    box.appendChild(ban);
+  }
+
+  results.rounds.forEach((groups, r) => {
+    const info = a.perRound[r];
+    const card = document.createElement("article");
+    card.className = "round-card";
+    const head = document.createElement("div");
+    head.className = "round-head";
+    const h = document.createElement("h3"); h.textContent = `Round ${r + 1}`;
+    const shape = document.createElement("span"); shape.className = "shape"; shape.textContent = describe(groups.map(g => g.length));
+    const chip = document.createElement("span");
+    if (info.broken) { chip.className = "chip bad"; chip.textContent = `${info.broken} rule ${info.broken === 1 ? "break" : "breaks"}`; }
+    else if (info.repeats) { chip.className = "chip warn"; chip.textContent = `${info.repeats} repeat ${info.repeats === 1 ? "pair" : "pairs"}`; }
+    else { chip.className = "chip good"; chip.textContent = r === 0 ? "Fresh start" : "All new partners"; }
+    head.append(h, shape, chip);
+
+    const grid = document.createElement("div");
+    grid.className = "groups";
+    groups.forEach((g, gi) => {
+      const div = document.createElement("div");
+      div.className = "group";
+      const h4 = document.createElement("h4");
+      h4.innerHTML = `<span>Group ${gi + 1}</span><span>${g.length}</span>`;
+      const ul = document.createElement("ul");
+      g.forEach(s => {
+        const li = document.createElement("li");
+        li.textContent = displayName(s);
+        const m = info.marks[gi].get(s);
+        if (m.forbiddenWith.length) {
+          li.className = "forbidden";
+          li.title = `Shouldn't be with ${m.forbiddenWith.map(displayName).join(", ")}`;
+        } else if (m.repeatWith.length) {
+          li.className = "repeat";
+          li.title = m.repeatWith.map(([o, rs]) => `With ${displayName(o)} before in round ${rs.join(", ")}`).join("\n");
+        }
+        ul.appendChild(li);
+      });
+      div.append(h4, ul);
+      grid.appendChild(div);
+    });
+    card.append(head, grid);
+    box.appendChild(card);
+  });
+}
+
+function copyButton(label, getText) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "btn"; b.textContent = label;
+  b.addEventListener("click", () => {
+    const text = getText();
+    const done = () => { b.textContent = "Copied"; setTimeout(() => (b.textContent = label), 1500); };
+    const fallback = () => {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      let ok = false; try { ok = document.execCommand("copy"); } catch {}
+      ta.remove();
+      if (ok) done(); else b.textContent = "Copy blocked";
+    };
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch { fallback(); }
+  });
+  return b;
+}
+function asList() {
+  return results.rounds.map((groups, r) =>
+    `Round ${r + 1}\n` + groups.map((g, gi) => `Group ${gi + 1}: ${g.map(displayName).join(", ")}`).join("\n")
+  ).join("\n\n");
+}
+function asTable() {
+  const rows = [["Student", ...results.rounds.map((_, r) => `Round ${r + 1}`)]];
+  for (let s = 0; s < results.n; s++) rows.push([displayName(s)]);
+  results.rounds.forEach(groups => groups.forEach((g, gi) => g.forEach(s => rows[s + 1].push(`Group ${gi + 1}`))));
+  return rows.map(r => r.join("\t")).join("\n");
+}
+
+// ---------- Wiring ----------
+function onConfigChange() {
+  updatePreviews(); renderBudget(); renderUnknown();
+  if (results && results.done) renderResults();
+  persistInputs();
+}
+function persistInputs() {
+  state.roster = el.roster.value; state.studentCount = el.studentCount.value;
+  state.forbidden = el.forbidden.value; state.discouraged = el.discouraged.value;
+  save();
+}
+function updateRosterCount() {
+  const n = names().length;
+  el.countField.hidden = n > 0;
+  el.rosterCount.textContent = n ? plural(n, "student") : "";
+}
+
+el.roster.value = state.roster ?? "";
+el.studentCount.value = state.studentCount ?? "24";
+el.forbidden.value = state.forbidden ?? "";
+el.discouraged.value = state.discouraged ?? "";
+if (el.forbidden.value.trim() || el.discouraged.value.trim()) el.rulesBox.open = true;
+
+el.roster.addEventListener("input", () => { updateRosterCount(); onConfigChange(); });
+el.studentCount.addEventListener("input", onConfigChange);
+el.forbidden.addEventListener("input", () => { renderUnknown(); persistInputs(); });
+el.discouraged.addEventListener("input", () => { renderUnknown(); persistInputs(); });
+el.addRound.addEventListener("click", () => {
+  const last = state.rounds[state.rounds.length - 1];
+  state.rounds.push(last ? { ...last } : { mode: "size", value: "4", leftover: "bigger" });
+  rowIds.push(uid());
+  renderRoundsEditor(); onConfigChange();
+  $(`${rowIds[rowIds.length - 1]}-val`)?.focus();
+});
+el.go.addEventListener("click", solveAll);
+
+updateRosterCount();
+renderRoundsEditor();
+renderBudget();
+renderUnknown();
+if (results && results.done) { renderResults(); setBusy(false); }
+else { results = null; solveAll(); }
+})();
+</script>
 </body>
 </html>

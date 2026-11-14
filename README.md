@@ -1,3 +1,17 @@
+# Round-by-Round Groups
+
+A fork of [Good-Enough Golfers](https://github.com/islemaster/good-enough-golfers) for making rotating class groups where **each round can have its own group size**.
+
+- Set every round separately: "groups of N", "N groups", or exact sizes like `6, 5, 5, 5, 5`.
+- Handles class sizes that don't divide evenly (choose bigger or smaller leftover groups per round).
+- Still avoids putting students with classmates they've already worked with, using the original's scoring (times grouped together, squared).
+- Shows whether a no-repeat schedule is even possible for your plan, and highlights any repeat pairs.
+- "Never together" and "prefer to split" rules, copy-as-list, and copy-for-spreadsheet.
+
+The new tool is `index.html` (a single self-contained file). The original equal-groups tool is kept in [`classic/`](classic/).
+
+---
+
 # Good-Enough Golfers
 
 _Good-Enough Golfers_ is a near-solver for a class of scheduling problems including the
