@@ -6,6 +6,7 @@ A fork of [Good-Enough Golfers](https://github.com/islemaster/good-enough-golfer
 - Handles class sizes that don't divide evenly (choose bigger or smaller leftover groups per round).
 - Still avoids putting students with classmates they've already worked with, using the original's scoring (times grouped together, squared).
 - Shows whether a no-repeat schedule is even possible for your plan, and highlights any repeat pairs.
+- Optional **roles** (e.g. Director, Writer, Camera, Editor, Actor): students rotate through roles they have not had yet, extra students become "Crew", and in small groups someone takes two roles. A "Roles by student" table shows who still needs which role.
 - "Never together" and "prefer to split" rules, copy-as-list, and copy-for-spreadsheet.
 
 The new tool is `index.html` (a single self-contained file). The original equal-groups tool is kept in [`classic/`](classic/).

@@ -147,8 +147,19 @@ details.more .inner { display: flex; flex-direction: column; gap: 14px; }
 .group h4 { margin: 0 0 6px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); display: flex; justify-content: space-between; }
 .group ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2px; }
 .group li { overflow-wrap: anywhere; }
-.group li.repeat { color: var(--warn); text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
-.group li.forbidden { color: var(--bad); font-weight: 600; cursor: help; }
+.group li { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.group li .nm.repeat { color: var(--warn); text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+.group li .nm.forbidden { color: var(--bad); font-weight: 600; cursor: help; }
+.role { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em; color: var(--accent); background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
+.role.crew { color: var(--muted); background: transparent; border: 1px solid var(--line); }
+.role.repeat { color: var(--warn); background: var(--warn-soft); cursor: help; }
+.table-wrap { overflow-x: auto; }
+table.roles-table { border-collapse: collapse; font-size: 0.88rem; min-width: 100%; }
+table.roles-table th, table.roles-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.roles-table th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+table.roles-table td.crew { color: var(--muted); }
+table.roles-table td.repeat { color: var(--warn); font-weight: 600; }
+table.roles-table td.todo { color: var(--muted); white-space: normal; min-width: 12rem; }
 .empty { color: var(--muted); padding: 32px 16px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
 .progress { color: var(--muted); font-size: 0.9rem; }
 .toast { font-size: 0.85rem; color: var(--good); }
@@ -191,6 +202,16 @@ footer a, .hint a { color: var(--accent); }
           <button type="button" class="btn" id="addRound">+ Add round</button>
         </div>
         <div class="budget" id="budget" aria-live="polite"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Roles <span class="count" id="roleCount"></span></h2>
+        <textarea id="roles" rows="5" spellcheck="false" aria-label="Roles, one per line" placeholder="Leave empty for no roles. For example:&#10;Director&#10;Writer&#10;Camera&#10;Editor&#10;Actor"></textarea>
+        <label class="field">Name for extra students when a group has more people than roles
+          <input type="text" id="crewName" value="Crew">
+        </label>
+        <p class="hint">Every group gets each role, and the tool gives students roles they haven't had yet. In a group with fewer people than roles, someone takes two.</p>
+        <div class="budget" id="roleHint" hidden></div>
       </div>
 
       <div class="panel">
@@ -239,6 +260,8 @@ const SAMPLE = {
   ],
   forbidden: "Ben, Dev\nMaya, Grace, Leo",
   discouraged: "",
+  roles: "",
+  crewName: "Crew",
 };
 const STORE_KEY = "roundGroupsState.v1";
 
@@ -255,7 +278,11 @@ const el = {
   forbidden: $("forbidden"), discouraged: $("discouraged"),
   forbiddenUnknown: $("forbiddenUnknown"), discouragedUnknown: $("discouragedUnknown"),
   go: $("go"), results: $("results"), rulesBox: $("rulesBox"),
+  roles: $("roles"), crewName: $("crewName"), roleCount: $("roleCount"), roleHint: $("roleHint"),
 };
+
+function roleList() { return el.roles.value.split(/[\n,]/).map(s => s.trim()).filter(Boolean); }
+function crewLabel() { return el.crewName.value.trim() || "Crew"; }
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
 function load() { try { const s = JSON.parse(localStorage.getItem(STORE_KEY)); return s && Array.isArray(s.rounds) ? s : null; } catch { return null; } }
@@ -323,8 +350,8 @@ function renderRoundsEditor() {
       <input type="text" id="${id}-val" class="val" aria-label="Round ${i + 1} amount">
       <button type="button" class="icon-btn" aria-label="Remove round ${i + 1}" title="Remove round">×</button>
       <select id="${id}-left" class="left" aria-label="Round ${i + 1} leftover students">
-        <option value="bigger">If it doesn't divide evenly: make a few groups bigger</option>
-        <option value="smaller">If it doesn't divide evenly: make a few groups smaller</option>
+        <option value="bigger">Uneven? Make some groups bigger</option>
+        <option value="smaller">Uneven? Make some groups smaller</option>
       </select>
       <div class="preview" id="${id}-preview"></div>`;
     const mode = row.querySelector(".mode"), val = row.querySelector(".val"), left = row.querySelector(".left");
@@ -366,8 +393,28 @@ function updatePreviews() {
     if (res.error) { prev.textContent = res.error; prev.classList.add("err"); }
     else if (res.sizes.includes(1)) { prev.textContent = `→ ${describe(res.sizes)}. One student would be on their own.`; prev.classList.add("warn"); }
     else { prev.textContent = `→ ${describe(res.sizes)}`; }
+    const R = roleList().length;
+    if (R && res.sizes) {
+      const small = [...new Set(res.sizes.filter(s => s < R))], big = [...new Set(res.sizes.filter(s => s > R))];
+      const notes = [];
+      if (small.length) notes.push(`groups of ${small.join(" or ")}: someone takes 2 roles`);
+      if (big.length) notes.push(`groups of ${big.join(" or ")}: extra students are ${crewLabel()}`);
+      if (notes.length) prev.textContent += ` · ${notes.join("; ")}`;
+    }
   });
   el.roundCount.textContent = plural(state.rounds.length, "round");
+  renderRoleHint();
+}
+
+function renderRoleHint() {
+  const R = roleList().length, W = state.rounds.length, h = el.roleHint;
+  el.roleCount.textContent = R ? plural(R, "role") : "";
+  h.hidden = !R || !W;
+  if (h.hidden) return;
+  h.className = "budget " + (W <= R ? "good" : "warn");
+  h.textContent = W <= R
+    ? `${plural(W, "round")} and ${plural(R, "role")}: each student can have a different role every round.`
+    : `${plural(W, "round")} but only ${plural(R, "role")}: some students will have to repeat a role.`;
 }
 
 function plan() {
@@ -455,14 +502,90 @@ function maybeYield() {
   return new Promise(r => setTimeout(r, 0));
 }
 
-async function solveRound(n, sizes, cost, token) {
+// ---------- Roles ----------
+// A repeated role costs more than a repeated partner (the teacher's priority).
+const ROLE_W = 4, CREW_W = 1, DOUBLE_W = 2, BIG = 1e7;
+
+// Minimum-cost assignment (Hungarian algorithm). a is n rows x m cols, n <= m.
+// Returns rowToCol.
+function hungarian(a, n, m) {
+  const u = new Float64Array(n + 1), v = new Float64Array(m + 1), p = new Int32Array(m + 1), way = new Int32Array(m + 1);
+  for (let i = 1; i <= n; i++) {
+    p[0] = i; let j0 = 0;
+    const minv = new Float64Array(m + 1).fill(Infinity), used = new Uint8Array(m + 1);
+    do {
+      used[j0] = 1; const i0 = p[j0]; let delta = Infinity, j1 = 0;
+      for (let j = 1; j <= m; j++) if (!used[j]) {
+        const cur = a[i0 - 1][j - 1] - u[i0] - v[j];
+        if (cur < minv[j]) { minv[j] = cur; way[j] = j0; }
+        if (minv[j] < delta) { delta = minv[j]; j1 = j; }
+      }
+      for (let j = 0; j <= m; j++) { if (used[j]) { u[p[j]] += delta; v[j] -= delta; } else minv[j] -= delta; }
+      j0 = j1;
+    } while (p[j0] !== 0);
+    do { const j1 = way[j0]; p[j0] = p[j1]; j0 = j1; } while (j0);
+  }
+  const rowToCol = new Array(n);
+  for (let j = 1; j <= m; j++) if (p[j]) rowToCol[p[j] - 1] = j - 1;
+  return rowToCol;
+}
+
+// Give each member of a group its roles. ctx = { R, rc, dbl }: rc[s*(R+1)+r] counts how often
+// student s has had role r (index R is the extra/crew role); dbl[s] counts how often s doubled up.
+// Returns { cost, roles } where roles[i] is the sorted list of role indices for members[i].
+function assignRoles(members, ctx) {
+  const { R, rc, dbl } = ctx, k = members.length, W = R + 1;
+  const roles = members.map(() => []);
+  if (!R || !k) return { cost: 0, roles };
+  if (k >= R) {
+    const a = [];
+    for (let slot = 0; slot < k; slot++) {
+      const r = slot < R ? slot : R, w = r < R ? ROLE_W : CREW_W, row = new Array(k);
+      for (let j = 0; j < k; j++) { const c = rc[members[j] * W + r]; row[j] = w * c * c; }
+      a.push(row);
+    }
+    const asg = hungarian(a, k, k);
+    let cost = 0;
+    asg.forEach((j, slot) => { cost += a[slot][j]; roles[j].push(slot < R ? slot : R); });
+    roles.forEach(r => r.sort((x, y) => x - y));
+    return { cost, roles };
+  }
+  // Fewer people than roles: each student takes at least one, some take more.
+  const per = Math.ceil(R / k), cols = k * per, a = [];
+  for (let r = 0; r < R; r++) {
+    const row = new Array(cols);
+    for (let j = 0; j < k; j++) {
+      const c = rc[members[j] * W + r], base = ROLE_W * c * c;
+      for (let t = 0; t < per; t++) { const d = dbl[members[j]] + t; row[j * per + t] = base + (t === 0 ? -BIG : DOUBLE_W * d * d); }
+    }
+    a.push(row);
+  }
+  const asg = hungarian(a, R, cols);
+  let cost = 0;
+  asg.forEach((col, r) => { cost += a[r][col]; roles[Math.floor(col / per)].push(r); });
+  roles.forEach(r => r.sort((x, y) => x - y));
+  return { cost: cost + k * BIG, roles };
+}
+
+async function solveRound(n, sizes, cost, token, roleCtx) {
   const starts = [], groupOf = new Int32Array(n);
   let pos = 0;
   sizes.forEach((s, g) => { starts.push(pos); for (let k = 0; k < s; k++) groupOf[pos + k] = g; pos += s; });
 
+  const memo = new Map();
+  const roleCost = (p, s, e) => {
+    const m = Array.from(p.subarray(s, e)).sort((x, y) => x - y), key = m.join(",");
+    let c = memo.get(key);
+    if (c === undefined) {
+      if (memo.size > 300000) memo.clear();
+      c = assignRoles(m, roleCtx).cost; memo.set(key, c);
+    }
+    return c;
+  };
   const gScore = (p, g) => {
     let t = 0; const s = starts[g], e = s + sizes[g];
     for (let i = s; i < e - 1; i++) { const row = p[i] * n; for (let j = i + 1; j < e; j++) t += cost[row + p[j]]; }
+    if (roleCtx.R) t += roleCost(p, s, e);
     return t;
   };
   const make = (p) => { const gs = sizes.map((_, g) => gScore(p, g)); return { p, gs, total: gs.reduce((a, b) => a + b, 0) }; };
@@ -490,7 +613,8 @@ async function solveRound(n, sizes, cost, token) {
   }
 
   let best = null;
-  for (let r = 0; r < RESTARTS; r++) {
+  const restarts = RESTARTS, keep = KEEP;
+  for (let r = 0; r < restarts; r++) {
     let top = Array.from({ length: 5 }, () => make(shuffled(n))).sort((a, b) => a.total - b.total);
     for (let gen = 0; gen < GENERATIONS && top[0].total > 0; gen++) {
       if (token.cancelled) return null;
@@ -503,7 +627,7 @@ async function solveRound(n, sizes, cost, token) {
       for (const m of pool) if (m.total < bestTotal) bestTotal = m.total;
       let ties = pool.filter(m => m.total === bestTotal);
       for (let i = ties.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [ties[i], ties[j]] = [ties[j], ties[i]]; }
-      ties = ties.slice(0, KEEP);
+      ties = ties.slice(0, keep);
       top = ties.map(m => {
         if (m.c) return m.c;
         const parent = top[m.ci];
@@ -536,19 +660,31 @@ async function solveAll() {
   }
 
   const sizesPlan = p.rounds.map(r => r.sizes);
-  results = { n, plan: sizesPlan, rounds: [], forb: Array.from(forb.keys()).filter(k => forb[k]), done: false, started: performance.now() };
+  const roleNames = roleList(), R = roleNames.length;
+  const roleCtx = { R, rc: new Float64Array(n * (R + 1)), dbl: new Float64Array(n) };
+  results = { n, plan: sizesPlan, rounds: [], roles: [], roleNames, crew: crewLabel(),
+    forb: Array.from(forb.keys()).filter(k => forb[k]), done: false, started: performance.now() };
   setBusy(true);
   renderResults();
 
   for (let r = 0; r < sizesPlan.length; r++) {
     const cost = new Float64Array(n * n);
     for (let k = 0; k < n * n; k++) { const w = met[k] + disc[k]; cost[k] = forb[k] ? FORBID_COST + w * w : w * w; }
-    const groups = await solveRound(n, sizesPlan[r], cost, token);
+    const groups = await solveRound(n, sizesPlan[r], cost, token, roleCtx);
     if (!groups || token.cancelled) return;
     groups.forEach(g => g.sort((a, b) => a - b));
     groups.sort((a, b) => b.length - a.length || a[0] - b[0]);
     groups.forEach(g => pairsOf(g, (a, b) => { met[a * n + b]++; met[b * n + a]++; }));
+    const roundRoles = groups.map(g => {
+      const { roles } = assignRoles(g, roleCtx);
+      g.forEach((s, i) => {
+        roles[i].forEach(role => roleCtx.rc[s * (R + 1) + role]++);
+        if (roles[i].length > 1) roleCtx.dbl[s] += roles[i].length - 1;
+      });
+      return roles;
+    });
     results.rounds.push(groups);
+    results.roles.push(roundRoles);
     renderResults();
   }
   results.done = true;
@@ -564,6 +700,8 @@ function setBusy(b) { el.go.disabled = b; el.go.textContent = b ? "Making groups
 // ---------- Results ----------
 function analyse(res) {
   const n = res.n, forb = new Set(res.forb || []);
+  const R = (res.roleNames || []).length;
+  const roleHist = Array.from({ length: n }, () => new Map()); // student -> role -> [round numbers]
   const history = new Map(); // pair key -> [round numbers]
   const perRound = res.rounds.map((groups, r) => {
     let repeats = 0, broken = 0;
@@ -581,11 +719,33 @@ function analyse(res) {
     groups.forEach(g => { for (let i = 0; i < g.length - 1; i++) for (let j = i + 1; j < g.length; j++) {
       const key = g[i] * n + g[j]; if (!history.has(key)) history.set(key, []); history.get(key).push(r + 1);
     } });
-    return { repeats, broken, marks };
+    // Roles: flag a main role a student already had in an earlier round.
+    let roleRepeats = 0;
+    const roleMarks = groups.map((g, gi) => g.map((s, i) => {
+      const mine = (res.roles && res.roles[r] && res.roles[r][gi] && res.roles[r][gi][i]) || [];
+      return mine.map(role => {
+        const prev = roleHist[s].get(role) || [];
+        const isRepeat = role < R && prev.length > 0;
+        if (isRepeat) roleRepeats++;
+        return { role, prev: prev.slice(), isRepeat };
+      });
+    }));
+    roleMarks.forEach((g, gi) => g.forEach((list, i) => list.forEach(({ role }) => {
+      const s = groups[gi][i];
+      if (!roleHist[s].has(role)) roleHist[s].set(role, []);
+      roleHist[s].get(role).push(r + 1);
+    })));
+    return { repeats, broken, marks, roleMarks, roleRepeats };
   });
   let maxMeet = 0; history.forEach(v => { if (v.length > maxMeet) maxMeet = v.length; });
-  return { perRound, maxMeet, totalRepeats: perRound.reduce((a, r) => a + r.repeats, 0), totalBroken: perRound.reduce((a, r) => a + r.broken, 0) };
+  return { perRound, maxMeet, roleHist,
+    totalRepeats: perRound.reduce((a, r) => a + r.repeats, 0),
+    totalBroken: perRound.reduce((a, r) => a + r.broken, 0),
+    totalRoleRepeats: perRound.reduce((a, r) => a + r.roleRepeats, 0) };
 }
+
+function roleName(res, idx) { return idx < (res.roleNames || []).length ? res.roleNames[idx] : res.crew || "Crew"; }
+function hasRoles(res) { return !!(res.roleNames && res.roleNames.length); }
 
 function renderResults() {
   const box = el.results;
@@ -603,6 +763,7 @@ function renderResults() {
   if (results.done) {
     const parts = [`<b>${results.rounds.length}</b> rounds for <b>${results.n}</b> students`];
     parts.push(a.totalRepeats === 0 ? `<b>no repeat partners</b>` : `<b>${a.totalRepeats}</b> repeat ${a.totalRepeats === 1 ? "pairing" : "pairings"}, no pair together more than <b>${a.maxMeet}</b> times`);
+    if (hasRoles(results)) parts.push(a.totalRoleRepeats === 0 ? `<b>no repeated roles</b>` : `<b>${a.totalRoleRepeats}</b> repeated ${a.totalRoleRepeats === 1 ? "role" : "roles"}`);
     if (a.totalBroken) parts.push(`<b>${a.totalBroken}</b> "never together" ${a.totalBroken === 1 ? "rule" : "rules"} couldn't be kept`);
     stats.innerHTML = parts.join(" · ") + (results.seconds != null ? ` <span>(${results.seconds}s)</span>` : "");
   } else {
@@ -621,12 +782,15 @@ function renderResults() {
   box.appendChild(summary);
 
   const p = plan();
-  if (results.done && (p.n !== results.n || JSON.stringify(p.rounds.map(r => r.sizes)) !== JSON.stringify(results.plan))) {
+  const rolesChanged = JSON.stringify(results.roleNames || []) !== JSON.stringify(roleList()) || (hasRoles(results) && (results.crew || "Crew") !== crewLabel());
+  if (results.done && (p.n !== results.n || JSON.stringify(p.rounds.map(r => r.sizes)) !== JSON.stringify(results.plan) || rolesChanged)) {
     const ban = document.createElement("div");
     ban.className = "banner";
     ban.textContent = p.n !== results.n
       ? `The number of students has changed (${results.n} → ${p.n}) since these groups were made. Choose "Shuffle again" to update them.`
-      : `The round settings have changed since these groups were made. Choose "Shuffle again" to apply them.`;
+      : rolesChanged
+        ? `The roles have changed since these groups were made. Choose "Shuffle again" to apply them.`
+        : `The round settings have changed since these groups were made. Choose "Shuffle again" to apply them.`;
     box.appendChild(ban);
   }
 
@@ -639,9 +803,12 @@ function renderResults() {
     const h = document.createElement("h3"); h.textContent = `Round ${r + 1}`;
     const shape = document.createElement("span"); shape.className = "shape"; shape.textContent = describe(groups.map(g => g.length));
     const chip = document.createElement("span");
-    if (info.broken) { chip.className = "chip bad"; chip.textContent = `${info.broken} rule ${info.broken === 1 ? "break" : "breaks"}`; }
-    else if (info.repeats) { chip.className = "chip warn"; chip.textContent = `${info.repeats} repeat ${info.repeats === 1 ? "pair" : "pairs"}`; }
-    else { chip.className = "chip good"; chip.textContent = r === 0 ? "Fresh start" : "All new partners"; }
+    const issues = [];
+    if (info.roleRepeats) issues.push(`${info.roleRepeats} repeat ${info.roleRepeats === 1 ? "role" : "roles"}`);
+    if (info.repeats) issues.push(`${info.repeats} repeat ${info.repeats === 1 ? "pair" : "pairs"}`);
+    if (info.broken) { chip.className = "chip bad"; chip.textContent = [`${info.broken} rule ${info.broken === 1 ? "break" : "breaks"}`, ...issues].join(" · "); }
+    else if (issues.length) { chip.className = "chip warn"; chip.textContent = issues.join(" · "); }
+    else { chip.className = "chip good"; chip.textContent = r === 0 ? "Fresh start" : (hasRoles(results) ? "All new partners and roles" : "All new partners"); }
     head.append(h, shape, chip);
 
     const grid = document.createElement("div");
@@ -652,16 +819,32 @@ function renderResults() {
       const h4 = document.createElement("h4");
       h4.innerHTML = `<span>Group ${gi + 1}</span><span>${g.length}</span>`;
       const ul = document.createElement("ul");
-      g.forEach(s => {
+      const order = g.map((s, i) => i);
+      if (hasRoles(results)) order.sort((x, y) => ((info.roleMarks[gi][x][0] || {}).role ?? 99) - ((info.roleMarks[gi][y][0] || {}).role ?? 99));
+      order.forEach(i => {
+        const s = g[i];
         const li = document.createElement("li");
-        li.textContent = displayName(s);
+        const nm = document.createElement("span");
+        nm.className = "nm";
+        nm.textContent = displayName(s);
         const m = info.marks[gi].get(s);
         if (m.forbiddenWith.length) {
-          li.className = "forbidden";
-          li.title = `Shouldn't be with ${m.forbiddenWith.map(displayName).join(", ")}`;
+          nm.classList.add("forbidden");
+          nm.title = `Shouldn't be with ${m.forbiddenWith.map(displayName).join(", ")}`;
         } else if (m.repeatWith.length) {
-          li.className = "repeat";
-          li.title = m.repeatWith.map(([o, rs]) => `With ${displayName(o)} before in round ${rs.join(", ")}`).join("\n");
+          nm.classList.add("repeat");
+          nm.title = m.repeatWith.map(([o, rs]) => `With ${displayName(o)} before in round ${rs.join(", ")}`).join("\n");
+        }
+        li.appendChild(nm);
+        const rm = info.roleMarks[gi][i];
+        if (rm.length) {
+          const tag = document.createElement("span");
+          const R = results.roleNames.length;
+          tag.className = "role" + (rm.every(x => x.role >= R) ? " crew" : "") + (rm.some(x => x.isRepeat) ? " repeat" : "");
+          tag.textContent = rm.map(x => roleName(results, x.role)).join(" + ");
+          const rep = rm.filter(x => x.isRepeat);
+          if (rep.length) tag.title = rep.map(x => `Also ${roleName(results, x.role)} in round ${x.prev.join(", ")}`).join("\n");
+          li.appendChild(tag);
         }
         ul.appendChild(li);
       });
@@ -671,6 +854,46 @@ function renderResults() {
     card.append(head, grid);
     box.appendChild(card);
   });
+
+  if (results.done && hasRoles(results)) box.appendChild(rolesTable(a));
+}
+
+// One row per student: their role each round, and the roles they haven't had yet.
+function rolesTable(a) {
+  const R = results.roleNames.length;
+  const card = document.createElement("article");
+  card.className = "round-card";
+  const head = document.createElement("div");
+  head.className = "round-head";
+  const h = document.createElement("h3"); h.textContent = "Roles by student";
+  head.appendChild(h);
+  const wrap = document.createElement("div"); wrap.className = "table-wrap";
+  const table = document.createElement("table"); table.className = "roles-table";
+  const thead = document.createElement("tr");
+  ["Student", ...results.rounds.map((_, r) => `Round ${r + 1}`), "Not yet"].forEach(t => { const th = document.createElement("th"); th.textContent = t; thead.appendChild(th); });
+  table.appendChild(thead);
+  const cells = Array.from({ length: results.n }, () => []);
+  results.rounds.forEach((groups, r) => groups.forEach((g, gi) => g.forEach((s, i) => { cells[s][r] = a.perRound[r].roleMarks[gi][i]; })));
+  for (let s = 0; s < results.n; s++) {
+    const tr = document.createElement("tr");
+    const th = document.createElement("td"); th.textContent = displayName(s); tr.appendChild(th);
+    results.rounds.forEach((_, r) => {
+      const td = document.createElement("td");
+      const list = cells[s][r] || [];
+      td.textContent = list.map(x => roleName(results, x.role)).join(" + ");
+      if (list.length && list.every(x => x.role >= R)) td.className = "crew";
+      if (list.some(x => x.isRepeat)) td.className = "repeat";
+      tr.appendChild(td);
+    });
+    const todo = document.createElement("td"); todo.className = "todo";
+    const missing = results.roleNames.filter((_, ri) => !a.roleHist[s].has(ri));
+    todo.textContent = missing.length ? missing.join(", ") : "Had every role";
+    tr.appendChild(todo);
+    table.appendChild(tr);
+  }
+  wrap.appendChild(table);
+  card.append(head, wrap);
+  return card;
 }
 
 function copyButton(label, getText) {
@@ -691,15 +914,25 @@ function copyButton(label, getText) {
   });
   return b;
 }
+function rolesOf(r, gi, i) {
+  const list = (results.roles && results.roles[r] && results.roles[r][gi] && results.roles[r][gi][i]) || [];
+  return list.map(x => roleName(results, x)).join(" + ");
+}
 function asList() {
   return results.rounds.map((groups, r) =>
-    `Round ${r + 1}\n` + groups.map((g, gi) => `Group ${gi + 1}: ${g.map(displayName).join(", ")}`).join("\n")
+    `Round ${r + 1}\n` + groups.map((g, gi) => `Group ${gi + 1}: ${g.map((s, i) => {
+      const role = hasRoles(results) ? rolesOf(r, gi, i) : "";
+      return role ? `${displayName(s)} (${role})` : displayName(s);
+    }).join(", ")}`).join("\n")
   ).join("\n\n");
 }
 function asTable() {
   const rows = [["Student", ...results.rounds.map((_, r) => `Round ${r + 1}`)]];
   for (let s = 0; s < results.n; s++) rows.push([displayName(s)]);
-  results.rounds.forEach(groups => groups.forEach((g, gi) => g.forEach(s => rows[s + 1].push(`Group ${gi + 1}`))));
+  results.rounds.forEach((groups, r) => groups.forEach((g, gi) => g.forEach((s, i) => {
+    const role = hasRoles(results) ? rolesOf(r, gi, i) : "";
+    rows[s + 1][r + 1] = role ? `Group ${gi + 1} - ${role}` : `Group ${gi + 1}`;
+  })));
   return rows.map(r => r.join("\t")).join("\n");
 }
 
@@ -712,6 +945,7 @@ function onConfigChange() {
 function persistInputs() {
   state.roster = el.roster.value; state.studentCount = el.studentCount.value;
   state.forbidden = el.forbidden.value; state.discouraged = el.discouraged.value;
+  state.roles = el.roles.value; state.crewName = el.crewName.value;
   save();
 }
 function updateRosterCount() {
@@ -724,6 +958,10 @@ el.roster.value = state.roster ?? "";
 el.studentCount.value = state.studentCount ?? "24";
 el.forbidden.value = state.forbidden ?? "";
 el.discouraged.value = state.discouraged ?? "";
+el.roles.value = state.roles ?? "";
+el.crewName.value = state.crewName ?? "Crew";
+el.roles.addEventListener("input", onConfigChange);
+el.crewName.addEventListener("input", onConfigChange);
 if (el.forbidden.value.trim() || el.discouraged.value.trim()) el.rulesBox.open = true;
 
 el.roster.addEventListener("input", () => { updateRosterCount(); onConfigChange(); });
